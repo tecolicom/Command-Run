@@ -34,7 +34,7 @@ sub new {
     my $obj = $class->SUPER::new;
     $obj->{OPTION} = { %default_option };
     $obj->{RESULT} = {};
-    if (@_ == 1 or @_ > 1 && $_[0] !~ /^(command|setstdin|stderr)$/) {
+    if (@_ == 1 or @_ > 1 && $_[0] !~ /^(command|stdin|stderr)$/) {
 	# Command::new(@command) style
 	$obj->command(@_);
     } else {
@@ -46,14 +46,24 @@ sub new {
 
 sub configure {
     my $obj = shift;
-    while (@_ >= 2) {
-	my($key, $val) = splice @_, 0, 2;
+    my %args = @_;
+    for my $key (keys %args) {
+	my $val = $args{$key};
 	if ($key eq 'command') {
 	    $obj->command(ref $val eq 'ARRAY' ? @$val : $val);
-	} elsif ($key eq 'setstdin') {
-	    $obj->setstdin($val);
+	} elsif ($key eq 'stdin') {
+	    $obj->_set_stdin($val);
+	} elsif ($key eq 'stdout') {
+	    $obj->{STDOUT_REF} = $val;
+	} elsif ($key eq 'stderr') {
+	    if (ref $val eq 'SCALAR') {
+		$obj->{STDERR_REF} = $val;
+		$obj->option(stderr => 'capture');
+	    } else {
+		$obj->option(stderr => $val);
+	    }
 	} else {
-	    $obj->{OPTION}->{$key} = $val;
+	    $obj->option($key => $val);
 	}
     }
     $obj;
@@ -85,6 +95,12 @@ sub run {
     my $obj = shift;
     $obj->configure(@_) if @_;
     $obj->update;
+    if (my $ref = $obj->{STDOUT_REF}) {
+	$$ref = $obj->data;
+    }
+    if (my $ref = $obj->{STDERR_REF}) {
+	$$ref = $obj->error;
+    }
     return $obj->result;
 }
 
@@ -203,7 +219,7 @@ sub date {
     @_ ? $obj->{DATE} = shift : $obj->{DATE};
 }
 
-sub setstdin {
+sub _set_stdin {
     my $obj = shift;
     my $data = shift;
     my $input = $obj->{INPUT} //= do {
@@ -217,6 +233,11 @@ sub setstdin {
     $input->print($data);
     $input->seek(0, 0)  or die "seek: $!\n";
     $obj;
+}
+
+sub with {
+    my $obj = shift;
+    $obj->configure(@_);
 }
 
 1;
@@ -242,7 +263,7 @@ Command::Run - Execute external command or code reference
 
     # Method chaining style
     my $runner = Command::Run->new;
-    $runner->command('cat', '-n')->setstdin($data)->run;
+    $runner->command('cat', '-n')->with(stdin => $data)->run;
     print $runner->data;
 
     # Separate stdout/stderr capture
@@ -260,9 +281,15 @@ Command::Run - Execute external command or code reference
 
     # Code reference execution
     my $result = Command::Run->new(
-        command  => [\&some_function, @args],
-        setstdin => $input_data,
+        command => [\&some_function, @args],
+        stdin   => $input_data,
     )->run;
+
+    # Using with() method
+    my ($out, $err);
+    Command::Run->new("command", @args)
+        ->with(stdin => $input, stdout => \$out, stderr => \$err)
+        ->run;
 
 =head1 VERSION
 
@@ -296,9 +323,9 @@ pairs, or a command can be passed directly:
 
     # Options style
     my $runner = Command::Run->new(
-        command  => \@command,
-        setstdin => $input_data,
-        stderr   => 'redirect',
+        command => \@command,
+        stdin   => $input_data,
+        stderr  => 'redirect',
     );
 
     # Direct command style
@@ -324,15 +351,55 @@ Set the command to execute.  The argument can be:
 
 Returns the object for method chaining.
 
-=item B<setstdin>(I<data>)
+=item B<with>(I<%args>)
 
-Set the input data to be passed to the command via STDIN.
-Returns the object for method chaining.
+Set options using named parameters.  Returns the object for method
+chaining.  Available parameters:
+
+=over 4
+
+=item C<stdin> => I<data>
+
+Set the input data to be fed to the command's STDIN.
+
+=item C<stdout> => I<\$scalar>
+
+Capture stdout into the referenced scalar variable.
+
+=item C<stderr> => I<\$scalar>
+
+Capture stderr into the referenced scalar variable.
+Automatically enables C<stderr =E<gt> 'capture'>.
+
+=item C<stderr> => C<'redirect'> | C<'capture'>
+
+Control stderr handling (same as constructor option).
+
+=back
+
+Example:
+
+    my ($out, $err);
+    Command::Run->new("command")
+        ->with(stdin => $data, stdout => \$out, stderr => \$err)
+        ->run;
 
 =item B<run>(%options)
 
 Execute the command and return the result hash reference.
-Optional parameters can override constructor options.
+Accepts the same parameters as C<with>:
+
+    # All-in-one style
+    my $result = Command::Run->new->run(
+        command => ['cat', '-n'],
+        stdin   => $data,
+        stderr  => 'redirect',
+    );
+
+    # Override options at run time
+    my $runner = Command::Run->new('cat');
+    $runner->run(stdin => $input1);
+    $runner->run(stdin => $input2);  # reuse with different input
 
 =item B<update>()
 

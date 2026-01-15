@@ -16,7 +16,7 @@ Command::Run - Execute external command or code reference
 
     # Method chaining style
     my $runner = Command::Run->new;
-    $runner->command('cat', '-n')->setstdin($data)->run;
+    $runner->command('cat', '-n')->with(stdin => $data)->run;
     print $runner->data;
 
     # Separate stdout/stderr capture
@@ -34,9 +34,15 @@ Command::Run - Execute external command or code reference
 
     # Code reference execution
     my $result = Command::Run->new(
-        command  => [\&some_function, @args],
-        setstdin => $input_data,
+        command => [\&some_function, @args],
+        stdin   => $input_data,
     )->run;
+
+    # Using with() method
+    my ($out, $err);
+    Command::Run->new("command", @args)
+        ->with(stdin => $input, stdout => \$out, stderr => \$err)
+        ->run;
 
 # VERSION
 
@@ -67,9 +73,9 @@ which can be used as a file argument to external commands.
 
         # Options style
         my $runner = Command::Run->new(
-            command  => \@command,
-            setstdin => $input_data,
-            stderr   => 'redirect',
+            command => \@command,
+            stdin   => $input_data,
+            stderr  => 'redirect',
         );
 
         # Direct command style
@@ -86,10 +92,34 @@ which can be used as a file argument to external commands.
 
     Returns the object for method chaining.
 
-- **setstdin**(_data_)
+- **with**(_%args_)
 
-    Set the input data to be passed to the command via STDIN.
-    Returns the object for method chaining.
+    Set options using named parameters.  Returns the object for method
+    chaining.  Available parameters:
+
+    - `stdin` => _data_
+
+        Set the input data (same as `setstdin`).
+
+    - `stdout` => _\\$scalar_
+
+        Capture stdout into the referenced scalar variable.
+
+    - `stderr` => _\\$scalar_
+
+        Capture stderr into the referenced scalar variable.
+        Automatically enables `stderr => 'capture'`.
+
+    - `stderr` => `'redirect'` | `'capture'`
+
+        Control stderr handling (same as constructor option).
+
+    Example:
+
+        my ($out, $err);
+        Command::Run->new("command")
+            ->with(stdin => $data, stdout => \$out, stderr => \$err)
+            ->run;
 
 - **run**(%options)
 

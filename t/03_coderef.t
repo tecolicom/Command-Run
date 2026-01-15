@@ -17,10 +17,10 @@ is $result->{data}, "a b c", 'code reference with @ARGV';
 $result = Command::Run->new(sub { print "@_" }, 'x', 'y', 'z')->run;
 is $result->{data}, "x y z", 'code reference with @_';
 
-# code reference with setstdin
+# code reference with stdin
 $result = Command::Run->new(
-    command  => [sub { print scalar <STDIN> }],
-    setstdin => "stdin data",
+    command => [sub { print scalar <STDIN> }],
+    stdin   => "stdin data",
 )->run;
 is $result->{data}, "stdin data", 'code reference with stdin';
 

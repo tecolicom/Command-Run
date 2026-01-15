@@ -31,16 +31,16 @@ $cmd = Command::Run->new('echo', 'test');
 $cmd->update;
 like $cmd->path, qr{^/(dev/fd|proc/self/fd)/\d+$}, 'path method';
 
-# setstdin
-$result = Command::Run->new('cat')->setstdin("input data")->run;
-is $result->{data}, "input data", 'setstdin';
+# stdin via with()
+$result = Command::Run->new('cat')->with(stdin => "input data")->run;
+is $result->{data}, "input data", 'stdin via with()';
 
-# setstdin via options
+# stdin via options
 $result = Command::Run->new(
-    command  => ['cat'],
-    setstdin => "option input",
+    command => ['cat'],
+    stdin   => "option input",
 )->run;
-is $result->{data}, "option input", 'setstdin via options';
+is $result->{data}, "option input", 'stdin via options';
 
 # stderr - default (pass through, not captured)
 $result = Command::Run->new('sh', '-c', 'echo out; echo err >&2')->run;
