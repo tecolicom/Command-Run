@@ -65,13 +65,14 @@ which can be used as a file argument to external commands.
 
 # CONSTRUCTOR
 
-- **new**(%options)
+- **new**(%parameters)
 - **new**(@command)
 
-    Create a new Command::Run object.  Options can be passed as key-value
-    pairs, or a command can be passed directly:
+    Create a new Command::Run object.  Parameters can be passed as
+    key-value pairs (see ["PARAMETERS"](#parameters)), or a command can be passed
+    directly:
 
-        # Options style
+        # Parameters style
         my $runner = Command::Run->new(
             command => \@command,
             stdin   => $input_data,
@@ -80,6 +81,34 @@ which can be used as a file argument to external commands.
 
         # Direct command style
         my $runner = Command::Run->new('ls', '-l');
+
+# PARAMETERS
+
+The following parameters can be used with `new`, `with`, and `run`.
+With `new` and `with`, parameters are stored in the object.
+With `run`, parameters are temporary and do not modify the object.
+
+- **command** => _\\@command_
+
+    The command to execute.  Can be an array reference of command and
+    arguments, or a code reference with arguments.
+
+- **stdin** => _data_
+
+    Input data to be fed to the command's STDIN.
+
+- **stdout** => _\\$scalar_
+
+    Scalar reference to capture STDOUT.
+
+- **stderr** => _\\$scalar_ | `'redirect'` | `'capture'`
+
+    Controls STDERR handling:
+
+    - _\\$scalar_ - Capture STDERR into the referenced variable
+    - `'redirect'` - Merge STDERR into STDOUT
+    - `'capture'` - Capture STDERR separately (accessible via `error` method)
+    - `undef` (default) - STDERR passes through to terminal
 
 # METHODS
 
@@ -92,39 +121,34 @@ which can be used as a file argument to external commands.
 
     Returns the object for method chaining.
 
-- **with**(_%args_)
+- **with**(_%parameters_)
 
-    Set options using named parameters.  Returns the object for method
-    chaining.  Available parameters:
-
-    - `stdin` => _data_
-
-        Set the input data (same as `setstdin`).
-
-    - `stdout` => _\\$scalar_
-
-        Capture stdout into the referenced scalar variable.
-
-    - `stderr` => _\\$scalar_
-
-        Capture stderr into the referenced scalar variable.
-        Automatically enables `stderr => 'capture'`.
-
-    - `stderr` => `'redirect'` | `'capture'`
-
-        Control stderr handling (same as constructor option).
-
-    Example:
+    Set parameters (see ["PARAMETERS"](#parameters)).  Settings are stored in the
+    object and persist across multiple `run` calls.  Returns the object
+    for method chaining.
 
         my ($out, $err);
         Command::Run->new("command")
             ->with(stdin => $data, stdout => \$out, stderr => \$err)
             ->run;
 
-- **run**(%options)
+- **run**(_%parameters_)
 
     Execute the command and return the result hash reference.
-    Optional parameters can override constructor options.
+    Accepts the same parameters as `with`, but parameters are
+    temporary and do not modify the object state.
+
+        # All-in-one style
+        my $result = Command::Run->new->run(
+            command => ['cat', '-n'],
+            stdin   => $data,
+            stderr  => 'redirect',
+        );
+
+        # Reuse runner with different input
+        my $runner = Command::Run->new('cat');
+        $runner->run(stdin => $input1);
+        $runner->run(stdin => $input2);  # object state unchanged
 
 - **update**()
 
@@ -155,20 +179,6 @@ which can be used as a file argument to external commands.
 - **date**()
 
     Return the timestamp of the last execution.
-
-- **option**(_name_ => _value_, ...)
-
-    Set or get options.
-
-# OPTIONS
-
-- **stderr**
-
-    Controls how STDERR is handled:
-
-    - `undef` (default) - STDERR passes through to terminal
-    - `'redirect'` - STDERR is redirected to STDOUT (merged)
-    - `'capture'` - STDERR is captured separately
 
 # RETURN VALUE
 

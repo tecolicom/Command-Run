@@ -93,8 +93,7 @@ sub option {
 
 sub run {
     my $obj = shift;
-    $obj->configure(@_) if @_;
-    $obj->update;
+    $obj->update(@_);
     if (my $ref = $obj->{STDOUT_REF}) {
 	$$ref = $obj->data;
     }
@@ -109,7 +108,7 @@ sub update {
     my $obj = shift;
     my @command = $obj->command;
     if (@command) {
-	$obj->{RESULT} = $obj->execute(\@command);
+	$obj->{RESULT} = $obj->execute(\@command, @_);
 	# Store stdout in temp file for path access
 	my $fh = $obj->fh;
 	$fh->seek(0, 0)  or die "seek: $!\n";
@@ -130,8 +129,9 @@ sub result {
 sub execute {
     my $obj = shift;
     my $command = shift;
+    my %opt = (%{$obj->{OPTION}}, @_);
     my @command = ref $command eq 'ARRAY' ? @$command : ($command);
-    my $stderr = $obj->option('stderr') // '';
+    my $stderr = $opt{stderr} // '';
 
     # Create pipes for stdout and stderr
     pipe(my $stdout_r, my $stdout_w) or die "pipe: $!\n";
@@ -143,7 +143,11 @@ sub execute {
 	close $stdout_r;
 	close $stderr_r if $stderr eq 'capture';
 
-	if (my $input = $obj->{INPUT}) {
+	if (exists $opt{stdin}) {
+	    my $data = $opt{stdin};
+	    open my $fh, '<', \$data or die "open: $!\n";
+	    open STDIN, '<&', $fh or die "dup: $!\n";
+	} elsif (my $input = $obj->{INPUT}) {
 	    open STDIN, "<&=", $input->fileno or die "open: $!\n";
 	    binmode STDIN, ':encoding(utf8)';
 	}
@@ -314,14 +318,15 @@ which can be used as a file argument to external commands.
 
 =over 4
 
-=item B<new>(%options)
+=item B<new>(%parameters)
 
 =item B<new>(@command)
 
-Create a new Command::Run object.  Options can be passed as key-value
-pairs, or a command can be passed directly:
+Create a new Command::Run object.  Parameters can be passed as
+key-value pairs (see L</PARAMETERS>), or a command can be passed
+directly:
 
-    # Options style
+    # Parameters style
     my $runner = Command::Run->new(
         command => \@command,
         stdin   => $input_data,
@@ -330,6 +335,45 @@ pairs, or a command can be passed directly:
 
     # Direct command style
     my $runner = Command::Run->new('ls', '-l');
+
+=back
+
+=head1 PARAMETERS
+
+The following parameters can be used with C<new>, C<with>, and C<run>.
+With C<new> and C<with>, parameters are stored in the object.
+With C<run>, parameters are temporary and do not modify the object.
+
+=over 4
+
+=item B<command> => I<\@command>
+
+The command to execute.  Can be an array reference of command and
+arguments, or a code reference with arguments.
+
+=item B<stdin> => I<data>
+
+Input data to be fed to the command's STDIN.
+
+=item B<stdout> => I<\$scalar>
+
+Scalar reference to capture STDOUT.
+
+=item B<stderr> => I<\$scalar> | C<'redirect'> | C<'capture'>
+
+Controls STDERR handling:
+
+=over 4
+
+=item * I<\$scalar> - Capture STDERR into the referenced variable
+
+=item * C<'redirect'> - Merge STDERR into STDOUT
+
+=item * C<'capture'> - Capture STDERR separately (accessible via C<error> method)
+
+=item * C<undef> (default) - STDERR passes through to terminal
+
+=back
 
 =back
 
@@ -351,43 +395,22 @@ Set the command to execute.  The argument can be:
 
 Returns the object for method chaining.
 
-=item B<with>(I<%args>)
+=item B<with>(I<%parameters>)
 
-Set options using named parameters.  Returns the object for method
-chaining.  Available parameters:
-
-=over 4
-
-=item C<stdin> => I<data>
-
-Set the input data to be fed to the command's STDIN.
-
-=item C<stdout> => I<\$scalar>
-
-Capture stdout into the referenced scalar variable.
-
-=item C<stderr> => I<\$scalar>
-
-Capture stderr into the referenced scalar variable.
-Automatically enables C<stderr =E<gt> 'capture'>.
-
-=item C<stderr> => C<'redirect'> | C<'capture'>
-
-Control stderr handling (same as constructor option).
-
-=back
-
-Example:
+Set parameters (see L</PARAMETERS>).  Settings are stored in the
+object and persist across multiple C<run> calls.  Returns the object
+for method chaining.
 
     my ($out, $err);
     Command::Run->new("command")
         ->with(stdin => $data, stdout => \$out, stderr => \$err)
         ->run;
 
-=item B<run>(%options)
+=item B<run>(I<%parameters>)
 
 Execute the command and return the result hash reference.
-Accepts the same parameters as C<with>:
+Accepts the same parameters as C<with>, but parameters are
+temporary and do not modify the object state.
 
     # All-in-one style
     my $result = Command::Run->new->run(
@@ -396,10 +419,10 @@ Accepts the same parameters as C<with>:
         stderr  => 'redirect',
     );
 
-    # Override options at run time
+    # Reuse runner with different input
     my $runner = Command::Run->new('cat');
     $runner->run(stdin => $input1);
-    $runner->run(stdin => $input2);  # reuse with different input
+    $runner->run(stdin => $input2);  # object state unchanged
 
 =item B<update>()
 
@@ -430,30 +453,6 @@ Seek to the beginning of the output temp file.
 =item B<date>()
 
 Return the timestamp of the last execution.
-
-=item B<option>(I<name> => I<value>, ...)
-
-Set or get options.
-
-=back
-
-=head1 OPTIONS
-
-=over 4
-
-=item B<stderr>
-
-Controls how STDERR is handled:
-
-=over 4
-
-=item * C<undef> (default) - STDERR passes through to terminal
-
-=item * C<'redirect'> - STDERR is redirected to STDOUT (merged)
-
-=item * C<'capture'> - STDERR is captured separately
-
-=back
 
 =back
 

@@ -68,9 +68,4 @@ is $result->{error}, "err\n", 'stderr captured separately';
 $result = Command::Run->new('sh', '-c', 'exit 42')->run;
 is $result->{result} >> 8, 42, 'non-zero exit status';
 
-# option method
-$cmd = Command::Run->new('echo', 'test');
-$cmd->option(stderr => 'capture');
-is $cmd->option('stderr'), 'capture', 'option get/set';
-
 done_testing;
