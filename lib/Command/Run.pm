@@ -1,6 +1,6 @@
 package Command::Run;
 
-our $VERSION = "0.01";
+our $VERSION = "0.99";
 
 use v5.14;
 use warnings;
@@ -263,6 +263,10 @@ Command::Run - Execute external command or code reference
         command  => [\&some_function, @args],
         setstdin => $input_data,
     )->run;
+
+=head1 VERSION
+
+Version 0.99
 
 =head1 DESCRIPTION
 

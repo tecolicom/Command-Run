@@ -63,7 +63,7 @@
          "web" : "https://github.com/tecolicom/Command-Run"
       }
    },
-   "version" : "0.01",
+   "version" : "0.99",
    "x_authority" : "cpan:UTASHIRO",
    "x_contributors" : [
       "Kazumasa Utashiro <kaz@utashiro.com>"

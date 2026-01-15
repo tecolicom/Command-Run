@@ -38,6 +38,10 @@ Command::Run - Execute external command or code reference
         setstdin => $input_data,
     )->run;
 
+# VERSION
+
+Version 0.99
+
 # DESCRIPTION
 
 This module provides a simple interface to execute external commands

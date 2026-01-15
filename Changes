@@ -2,5 +2,13 @@ Revision history for Perl extension Command-Run
 
 {{$NEXT}}
 
-    - original version
+0.99 2026-01-15T05:49:39Z
+
+    - Initial release
+    - Execute external commands or Perl code references
+    - Capture stdout with flexible stderr handling
+      (pass-through, redirect to stdout, or separate capture)
+    - Output accessible via /dev/fd/N path for external commands
+    - Method chaining support
+    - Derived from App::cdif::Command
 
