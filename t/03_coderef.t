@@ -9,9 +9,13 @@ my $result = Command::Run->new(sub { print "from code" })->run;
 is $result->{data}, "from code", 'code reference execution';
 is $result->{result}, 0, 'code reference exit status';
 
-# code reference with arguments
+# code reference with arguments via @ARGV
 $result = Command::Run->new(sub { print "@ARGV" }, 'a', 'b', 'c')->run;
 is $result->{data}, "a b c", 'code reference with @ARGV';
+
+# code reference with arguments via @_
+$result = Command::Run->new(sub { print "@_" }, 'x', 'y', 'z')->run;
+is $result->{data}, "x y z", 'code reference with @_';
 
 # code reference with setstdin
 $result = Command::Run->new(

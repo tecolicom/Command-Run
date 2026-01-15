@@ -146,7 +146,7 @@ sub execute {
 	    if (my $name = code_name($code)) {
 		$0 = $name;
 	    }
-	    $code->();
+	    $code->(@command);
 	    exit 0;
 	}
 	exec @command;
