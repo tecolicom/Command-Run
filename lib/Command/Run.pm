@@ -125,6 +125,12 @@ sub execute {
     my $command = shift;
     my %opt = (%{$obj->{OPTION}}, @_);
     my @command = ref $command eq 'ARRAY' ? @$command : ($command);
+
+    # Use nofork path for code references when requested
+    if ($opt{nofork} and ref $command[0] eq 'CODE') {
+	return $obj->_execute_nofork(\@command, %opt);
+    }
+
     my $stderr = $opt{stderr} // '';
 
     # Create pipes for stdout and stderr
@@ -138,9 +144,12 @@ sub execute {
 	close $stderr_r if $stderr eq 'capture';
 
 	if (exists $opt{stdin}) {
-	    my $data = $opt{stdin};
-	    open my $fh, '<', \$data or die "open: $!\n";
-	    open STDIN, '<&', $fh or die "dup: $!\n";
+	    my $tmp = new_tmpfile IO::File or die "tmpfile: $!\n";
+	    binmode $tmp, ':encoding(utf8)';
+	    $tmp->print($opt{stdin});
+	    $tmp->seek(0, 0) or die "seek: $!\n";
+	    open STDIN, '<&', $tmp or die "dup: $!\n";
+	    binmode STDIN, ':encoding(utf8)';
 	} elsif (my $input = $obj->{INPUT}) {
 	    open STDIN, "<&=", $input->fileno or die "open: $!\n";
 	    binmode STDIN, ':encoding(utf8)';
@@ -188,6 +197,113 @@ sub execute {
 	data   => $stdout,
 	error  => $stderr_out,
 	pid    => $pid,
+    };
+}
+
+sub _execute_nofork {
+    my $obj = shift;
+    my $command = shift;
+    my %opt = @_;
+    my @command = @$command;
+    my $stderr_mode = $opt{stderr} // '';
+
+    my $code = shift @command;
+
+    # Reuse cached tmpfile for stdout (truncate+seek), create on first call
+    my $tmp_stdout = $obj->{NOFORK_STDOUT} //= do {
+	my $fh = new_tmpfile IO::File or die "tmpfile: $!\n";
+	binmode $fh, ':encoding(utf8)';
+	$fh;
+    };
+    $tmp_stdout->seek(0, 0)  or die "seek: $!\n";
+    $tmp_stdout->truncate(0) or die "truncate: $!\n";
+
+    # Save and redirect STDOUT (always needed)
+    open my $save_stdout, '>&', \*STDOUT or die "dup STDOUT: $!\n";
+    open STDOUT, '>&', $tmp_stdout or die "redirect STDOUT: $!\n";
+
+    # Handle STDERR — only save/redirect when needed
+    my ($save_stderr, $tmp_stderr);
+    if ($stderr_mode eq 'redirect') {
+	open $save_stderr, '>&', \*STDERR or die "dup STDERR: $!\n";
+	open STDERR, '>&', \*STDOUT or die "redirect STDERR: $!\n";
+    } elsif ($stderr_mode eq 'capture') {
+	$tmp_stderr = $obj->{NOFORK_STDERR} //= do {
+	    my $fh = new_tmpfile IO::File or die "tmpfile: $!\n";
+	    binmode $fh, ':encoding(utf8)';
+	    $fh;
+	};
+	$tmp_stderr->seek(0, 0)  or die "seek: $!\n";
+	$tmp_stderr->truncate(0) or die "truncate: $!\n";
+	open $save_stderr, '>&', \*STDERR or die "dup STDERR: $!\n";
+	open STDERR, '>&', $tmp_stderr or die "redirect STDERR: $!\n";
+    }
+
+    # Handle STDIN — only save/redirect when needed
+    my $save_stdin;
+    if (exists $opt{stdin}) {
+	my $tmp_stdin = $obj->{NOFORK_STDIN} //= do {
+	    my $fh = new_tmpfile IO::File or die "tmpfile: $!\n";
+	    binmode $fh, ':encoding(utf8)';
+	    $fh;
+	};
+	$tmp_stdin->seek(0, 0)  or die "seek: $!\n";
+	$tmp_stdin->truncate(0) or die "truncate: $!\n";
+	$tmp_stdin->print($opt{stdin});
+	$tmp_stdin->seek(0, 0) or die "seek: $!\n";
+	open $save_stdin, '<&', \*STDIN or die "dup STDIN: $!\n";
+	open STDIN, '<&', $tmp_stdin or die "redirect STDIN: $!\n";
+	binmode STDIN, ':encoding(utf8)';
+    } elsif (my $input = $obj->{INPUT}) {
+	$input->seek(0, 0) or die "seek: $!\n";
+	open $save_stdin, '<&', \*STDIN or die "dup STDIN: $!\n";
+	open STDIN, '<&', $input->fileno or die "redirect STDIN: $!\n";
+	binmode STDIN, ':encoding(utf8)';
+    }
+
+    # Set global state
+    local @ARGV = @command;
+    my $orig_0;
+    if (my $name = code_name($code)) {
+	$orig_0 = $0;
+	$0 = $name;
+    }
+
+    # Execute
+    my $result = 0;
+    eval { $code->(@command) };
+    if ($@) {
+	$result = -1;
+    }
+
+    # Flush and restore — only what was redirected
+    STDOUT->flush;
+    open STDOUT, '>&', $save_stdout or die "restore STDOUT: $!\n";
+    if ($save_stderr) {
+	STDERR->flush;
+	open STDERR, '>&', $save_stderr or die "restore STDERR: $!\n";
+    }
+    if ($save_stdin) {
+	open STDIN, '<&', $save_stdin or die "restore STDIN: $!\n";
+    }
+    if (defined $orig_0) {
+	$0 = $orig_0;
+    }
+
+    # Read captured output from tmpfiles
+    $tmp_stdout->seek(0, 0) or die "seek: $!\n";
+    my $stdout_data = do { local $/; <$tmp_stdout> };
+
+    my $stderr_data = '';
+    if ($tmp_stderr) {
+	$tmp_stderr->seek(0, 0) or die "seek: $!\n";
+	$stderr_data = do { local $/; <$tmp_stderr> };
+    }
+
+    return {
+	result => $result,
+	data   => $stdout_data,
+	error  => $stderr_data,
     };
 }
 
@@ -364,6 +480,35 @@ Controls STDERR handling:
 =item * C<undef> (default) - STDERR passes through to terminal
 
 =back
+
+=item B<nofork> => I<bool>
+
+When true and the command is a code reference, execute the code in
+the current process without forking.  This avoids the overhead of
+C<fork()> and is useful for lightweight Perl functions.
+
+STDOUT, STDERR, and STDIN are temporarily redirected to real
+temporary files using C<dup>, and restored after execution.
+C<@ARGV> and C<$0> are also saved and restored.
+
+B<Caveats:>
+
+=over 4
+
+=item * If the code calls C<exit()>, the entire process terminates.
+
+=item * Global state changes (other than C<@ARGV> and C<$0>) persist
+after execution.
+
+=back
+
+This option is ignored for external commands (non-code references),
+which always use C<fork()>.
+
+    my $result = Command::Run->new(
+        command => [\&process, @args],
+        nofork  => 1,
+    )->run;
 
 =back
 

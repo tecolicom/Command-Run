@@ -107,6 +107,30 @@ With `run`, parameters are temporary and do not modify the object.
     - `'capture'` - Capture STDERR separately (accessible via `error` method)
     - `undef` (default) - STDERR passes through to terminal
 
+- **nofork** => _bool_
+
+    When true and the command is a code reference, execute the code in
+    the current process without forking.  This avoids the overhead of
+    `fork()` and is useful for lightweight Perl functions.
+
+    STDOUT, STDERR, and STDIN are temporarily redirected to real
+    temporary files using `dup`, and restored after execution.
+    `@ARGV` and `$0` are also saved and restored.
+
+    **Caveats:**
+
+    - If the code calls `exit()`, the entire process terminates.
+    - Global state changes (other than `@ARGV` and `$0`) persist
+    after execution.
+
+    This option is ignored for external commands (non-code references),
+    which always use `fork()`.
+
+        my $result = Command::Run->new(
+            command => [\&process, @args],
+            nofork  => 1,
+        )->run;
+
 # METHODS
 
 - **command**(_@command_)
