@@ -1,6 +1,6 @@
 package Command::Run;
 
-our $VERSION = "0.9902";
+our $VERSION = "0.9903";
 
 use v5.14;
 use warnings;
@@ -398,7 +398,7 @@ Command::Run - Execute external command or code reference
 
 =head1 VERSION
 
-Version 0.9902
+Version 0.9903
 
 =head1 DESCRIPTION
 
