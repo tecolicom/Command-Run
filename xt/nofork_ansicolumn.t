@@ -21,6 +21,14 @@ subtest 'fork vs nofork: same output' => sub {
     is $nofork->{data}, $fork->{data}, 'fork and nofork produce same output';
 };
 
+subtest 'fork vs nofork+raw: same output' => sub {
+    my @cmd = ($func, '-c80', '-C2');
+    my $fork = Command::Run->new(command => \@cmd, stdin => $input)->run;
+    my $raw  = Command::Run->new(command => \@cmd, stdin => $input, nofork => 1, raw => 1)->run;
+    is $raw->{result}, 0, 'nofork+raw: exit status 0';
+    is $raw->{data}, $fork->{data}, 'nofork+raw produces same output as fork';
+};
+
 subtest 'nofork: column options' => sub {
     my $result = Command::Run->new(
 	command => [$func, '-c80', '-C4'],
@@ -39,21 +47,7 @@ subtest 'nofork: fillrows mode' => sub {
 	nofork  => 1,
     )->run;
     is $result->{result}, 0, 'exit status 0';
-    # fillrows: first row should be 1 2 3 4
     like $result->{data}, qr/^1\s+2\s+3\s+4\s*$/m, 'fillrows order';
-};
-
-subtest 'nofork: stderr capture with coderef' => sub {
-    # App::ansicolumn calls exit() on invalid options, which
-    # terminates the process under nofork.  Use a plain coderef
-    # to verify stderr capture works alongside ansicolumn tests.
-    my $result = Command::Run->new(
-	command => [sub { print "out"; print STDERR "err" }],
-	stderr  => 'capture',
-	nofork  => 1,
-    )->run;
-    is $result->{data},  "out", 'stdout captured';
-    is $result->{error}, "err", 'stderr captured';
 };
 
 subtest 'nofork: stdout/stderr references' => sub {

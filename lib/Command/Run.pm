@@ -475,44 +475,15 @@ Controls STDERR handling:
 =item B<nofork> => I<bool>
 
 When true and the command is a code reference, execute the code in
-the current process without forking.  This avoids the overhead of
-C<fork()> and is useful for lightweight Perl functions.
-
-STDOUT, STDERR, and STDIN are temporarily redirected to real
-temporary files using C<dup>, and restored after execution.
-C<@ARGV> and C<$0> are also saved and restored.
-
-B<Caveats:>
-
-=over 4
-
-=item * If the code calls C<exit()>, the entire process terminates.
-
-=item * Global state changes (other than C<@ARGV> and C<$0>) persist
-after execution.
-
-=back
-
-This option is ignored for external commands (non-code references),
-which always use C<fork()>.
-
-    my $result = Command::Run->new(
-        command => [\&process, @args],
-        nofork  => 1,
-    )->run;
+the current process without forking.  Ignored for external commands.
+See L</NOFORK AND RAW MODE> for details.
 
 =item B<raw> => I<bool>
 
-When true (and C<nofork> is also true), skip the C<:encoding(utf8)>
-layer on temporary files used for I/O redirection.  This allows
-Perl's internal string format to be passed directly between caller
-and callee without encode/decode overhead.
-
-The callee must also avoid encoding layers on STDIN/STDOUT (e.g.,
-by using L<Getopt::EX::raw>).
-
-This option has no effect on the fork path, where separate processes
-cannot share Perl's internal string representation.
+When true (with C<nofork>), use C<:utf8> instead of
+C<:encoding(utf8)> on I/O temporary files, avoiding encode/decode
+overhead and PerlIO layer leak.  See L</NOFORK AND RAW MODE> for
+details.
 
     my $result = Command::Run->new(
         command => [\&process, @args],
@@ -622,6 +593,157 @@ The captured error output (stderr, empty string unless C<stderr> is C<'capture'>
 =item B<pid>
 
 The process ID of the executed command.
+
+=back
+
+=head1 NOFORK AND RAW MODE
+
+=head2 Overview
+
+When executing Perl code references, the default fork-based execution
+has two significant costs:
+
+=over 4
+
+=item 1. Fork overhead
+
+C<fork()> duplicates the entire process, including all loaded modules
+and data structures.
+
+=item 2. Encoding overhead
+
+I/O between parent and child processes goes through pipes, requiring
+C<:encoding(utf8)> layers that encode and decode UTF-8 on every read
+and write.
+
+=back
+
+The C<nofork> option eliminates the fork cost by executing the code
+reference in the current process.  The C<raw> option eliminates the
+encoding cost by using the C<:utf8> PerlIO pseudo-layer instead of
+C<:encoding(utf8)>.
+
+Combined, these options can achieve B<over 30x speedup> compared to
+fork-based execution for lightweight functions with small I/O.
+
+=head2 How Nofork Works
+
+In nofork mode, C<_execute_nofork> temporarily redirects the real
+STDOUT, STDERR, and STDIN file descriptors to temporary files using
+C<dup>, executes the code reference, then restores them:
+
+    # Simplified flow:
+    open $save, '>&', \*STDOUT;           # save original
+    open STDOUT, '>&', $tmpfile;          # redirect to tmpfile
+    $code->(@args);                       # execute code ref
+    open STDOUT, '>&', $save;             # restore original
+    $tmpfile->seek(0, 0);
+    $output = do { local $/; <$tmpfile> }; # read captured output
+
+The code reference sees real STDOUT/STDIN file descriptors (not tied
+handles), so it behaves identically to the fork path from the
+callee's perspective.  C<@ARGV>, C<$0>, and C<$_> are protected with
+C<local> to prevent side effects.
+
+=head2 How Raw Mode Works
+
+The C<raw> option controls which PerlIO layer is applied to the
+temporary files used for I/O redirection:
+
+    # Normal mode (raw => 0):
+    binmode $tmpfile, ':encoding(utf8)';  # full encode/decode
+
+    # Raw mode (raw => 1):
+    binmode $tmpfile, ':utf8';            # flag only, no conversion
+
+In the normal fork path, C<:encoding(utf8)> is necessary because data
+crosses process boundaries through pipes as byte streams.  But in
+nofork mode, caller and callee share the same Perl interpreter, so
+Perl's internal string format (which is already UTF-8 internally) can
+be passed directly.  The C<:utf8> layer simply sets Perl's UTF-8 flag
+on strings read from the file without performing actual byte-level
+conversion.
+
+=head3 PerlIO Encoding Leak
+
+There is an additional reason to prefer C<:utf8> over
+C<:encoding(utf8)> in long-running processes.  Repeatedly pushing and
+popping the C<:encoding(utf8)> layer (which happens on each nofork
+execution when opening and closing temporary files) causes a
+cumulative performance degradation in Perl's PerlIO subsystem.  This
+affects B<all> PerlIO operations in the process, not just the ones
+using the encoding layer.
+
+In benchmarks, nofork with C<:encoding(utf8)> is actually B<slower>
+than fork after many iterations, due to this leak.  Raw mode avoids
+the issue entirely.
+
+    # Benchmark: code ref with stdin (100-byte input, 1000 iterations)
+    fork:                  399/s (baseline)
+    nofork + :encoding:    316/s (0.8x — slower than fork!)
+    nofork + :utf8 (raw): 13,433/s (34x faster)
+
+=head2 Zero-Modification Callee Integration
+
+A key advantage of this mechanism is that B<callee modules typically
+require no modification> to work with nofork+raw mode.
+
+Many Perl modules use C<use open> pragma or equivalent to set up
+encoding layers on standard I/O:
+
+    package App::ansicolumn;
+    use open IO => ':utf8', ':std';    # sets :encoding(utf8) on STDIO
+
+This works transparently because of execution order.  When using
+nofork mode with method chaining:
+
+    require App::ansicolumn;           # (1) module loaded here
+    Command::Run->new
+        ->command(\&ansicolumn, @args)
+        ->with(stdin => $text, nofork => 1, raw => 1)
+        ->update                       # (2) STDOUT redirected here
+        ->data;
+
+At step (1), C<require> loads the module and C<use open ':std'>
+applies C<:encoding(utf8)> to the B<original> STDOUT.  At step (2),
+C<_execute_nofork> redirects STDOUT to a fresh temporary file with
+C<:utf8> layer.  The callee's encoding setup has already fired on the
+original STDOUT and does not affect the redirected one.
+
+This means existing modules like L<App::ansicolumn> and
+L<App::ansifold> work unchanged with nofork+raw mode, achieving
+significant speedups with zero code changes on the callee side.
+
+B<Note:> If a module's encoding setup runs lazily (e.g., inside the
+called function rather than at module load time), the encoding layer
+would be applied to the redirected STDOUT, conflicting with raw mode.
+In such cases, the L<Getopt::EX::raw> module can be used to
+intercept and replace C<:encoding(utf8)> with C<:raw:utf8> at the
+callee side.
+
+=head2 Caller Protection
+
+Nofork mode executes the code reference in the same process, so care
+is needed to prevent the callee from corrupting the caller's state.
+The following protections are applied:
+
+=over 4
+
+=item C<local $_;>
+
+Prevents the callee from modifying the caller's C<$_>.  This is
+critical when the caller aliases C<$_> to important data (e.g.,
+greple's C<local *_ = shift> to alias C<$_> to the content buffer).
+Without this protection, a callee's C<< while (E<lt>E<gt>) >> loop
+would set C<$_> to C<undef> at EOF, destroying the caller's data.
+
+=item C<local @ARGV>
+
+Prevents the callee from modifying the caller's C<@ARGV>.
+
+=item C<$0> save/restore
+
+Prevents the callee from permanently changing the program name.
 
 =back
 
