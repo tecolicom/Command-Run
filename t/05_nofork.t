@@ -187,4 +187,39 @@ $cmd->update;
 like $cmd->path, qr{^/(dev/fd|proc/self/fd)/\d+$}, 'nofork: path method';
 is $cmd->data, "path test", 'nofork: data after update';
 
+# raw mode: ASCII round-trip
+$result = Command::Run->new(
+    command => [sub { print scalar <STDIN> }],
+    nofork  => 1,
+    raw     => 1,
+)->run(stdin => "hello");
+is $result->{data}, "hello", 'nofork raw: ASCII round-trip';
+
+# raw mode: wide character round-trip
+$result = Command::Run->new(
+    command => [sub { print scalar <STDIN> }],
+    nofork  => 1,
+    raw     => 1,
+)->run(stdin => "日本語テスト");
+is $result->{data}, "日本語テスト", 'nofork raw: wide char round-trip';
+
+# raw mode: output only (no stdin)
+$result = Command::Run->new(
+    command => [sub { print "raw output" }],
+    nofork  => 1,
+    raw     => 1,
+)->run;
+is $result->{data}, "raw output", 'nofork raw: output only';
+
+# raw mode: repeated execution (tmpfile reuse with separate cache keys)
+$cmd = Command::Run->new(
+    command => [sub { print scalar <STDIN> }],
+    nofork  => 1,
+    raw     => 1,
+);
+$result = $cmd->run(stdin => "raw first");
+is $result->{data}, "raw first", 'nofork raw: repeated 1st';
+$result = $cmd->run(stdin => "raw second");
+is $result->{data}, "raw second", 'nofork raw: repeated 2nd';
+
 done_testing;

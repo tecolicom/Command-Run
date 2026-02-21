@@ -201,10 +201,11 @@ sub execute {
 }
 
 sub _tmpfile {
-    my ($obj, $key) = @_;
+    my ($obj, $key, %opt) = @_;
+    $key .= '_RAW' if $opt{raw};
     my $fh = $obj->{$key} //= do {
 	my $f = new_tmpfile IO::File or die "tmpfile: $!\n";
-	binmode $f, ':encoding(utf8)';
+	binmode $f, $opt{raw} ? ':utf8' : ':encoding(utf8)';
 	$f;
     };
     $fh->seek(0, 0)  or die "seek: $!\n";
@@ -218,14 +219,16 @@ sub _execute_nofork {
     my %opt = @_;
     my @command = @$command;
     my $stderr_mode = $opt{stderr} // '';
+    my $raw = $opt{raw};
 
     my $code = shift @command;
 
-    my $tmp_stdout = $obj->_tmpfile('NOFORK_STDOUT');
+    my $tmp_stdout = $obj->_tmpfile('NOFORK_STDOUT', raw => $raw);
 
     # Save and redirect STDOUT (always needed)
     open my $save_stdout, '>&', \*STDOUT or die "dup STDOUT: $!\n";
     open STDOUT, '>&', $tmp_stdout or die "redirect STDOUT: $!\n";
+    binmode STDOUT, $raw ? ':utf8' : ':encoding(utf8)';
 
     # Handle STDERR — only save/redirect when needed
     my ($save_stderr, $tmp_stderr);
@@ -233,7 +236,7 @@ sub _execute_nofork {
 	open $save_stderr, '>&', \*STDERR or die "dup STDERR: $!\n";
 	open STDERR, '>&', \*STDOUT or die "redirect STDERR: $!\n";
     } elsif ($stderr_mode eq 'capture') {
-	$tmp_stderr = $obj->_tmpfile('NOFORK_STDERR');
+	$tmp_stderr = $obj->_tmpfile('NOFORK_STDERR', raw => $raw);
 	open $save_stderr, '>&', \*STDERR or die "dup STDERR: $!\n";
 	open STDERR, '>&', $tmp_stderr or die "redirect STDERR: $!\n";
     }
@@ -241,20 +244,21 @@ sub _execute_nofork {
     # Handle STDIN — only save/redirect when needed
     my $save_stdin;
     if (exists $opt{stdin}) {
-	my $tmp_stdin = $obj->_tmpfile('NOFORK_STDIN');
+	my $tmp_stdin = $obj->_tmpfile('NOFORK_STDIN', raw => $raw);
 	$tmp_stdin->print($opt{stdin});
 	$tmp_stdin->seek(0, 0) or die "seek: $!\n";
 	open $save_stdin, '<&', \*STDIN or die "dup STDIN: $!\n";
 	open STDIN, '<&', $tmp_stdin or die "redirect STDIN: $!\n";
-	binmode STDIN, ':encoding(utf8)';
+	binmode STDIN, $raw ? ':utf8' : ':encoding(utf8)';
     } elsif (my $input = $obj->{INPUT}) {
 	$input->seek(0, 0) or die "seek: $!\n";
 	open $save_stdin, '<&', \*STDIN or die "dup STDIN: $!\n";
 	open STDIN, '<&', $input->fileno or die "redirect STDIN: $!\n";
-	binmode STDIN, ':encoding(utf8)';
+	binmode STDIN, $raw ? ':utf8' : ':encoding(utf8)';
     }
 
     # Set global state
+    local $_;
     local @ARGV = @command;
     my $orig_0;
     if (my $name = code_name($code)) {
@@ -495,6 +499,25 @@ which always use C<fork()>.
     my $result = Command::Run->new(
         command => [\&process, @args],
         nofork  => 1,
+    )->run;
+
+=item B<raw> => I<bool>
+
+When true (and C<nofork> is also true), skip the C<:encoding(utf8)>
+layer on temporary files used for I/O redirection.  This allows
+Perl's internal string format to be passed directly between caller
+and callee without encode/decode overhead.
+
+The callee must also avoid encoding layers on STDIN/STDOUT (e.g.,
+by using L<Getopt::EX::raw>).
+
+This option has no effect on the fork path, where separate processes
+cannot share Perl's internal string representation.
+
+    my $result = Command::Run->new(
+        command => [\&process, @args],
+        nofork  => 1,
+        raw     => 1,
     )->run;
 
 =back

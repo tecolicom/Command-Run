@@ -131,6 +131,25 @@ With `run`, parameters are temporary and do not modify the object.
             nofork  => 1,
         )->run;
 
+- **raw** => _bool_
+
+    When true (and `nofork` is also true), skip the `:encoding(utf8)`
+    layer on temporary files used for I/O redirection.  This allows
+    Perl's internal string format to be passed directly between caller
+    and callee without encode/decode overhead.
+
+    The callee must also avoid encoding layers on STDIN/STDOUT (e.g.,
+    by using [Getopt::EX::raw](https://metacpan.org/pod/Getopt%3A%3AEX%3A%3Araw)).
+
+    This option has no effect on the fork path, where separate processes
+    cannot share Perl's internal string representation.
+
+        my $result = Command::Run->new(
+            command => [\&process, @args],
+            nofork  => 1,
+            raw     => 1,
+        )->run;
+
 # METHODS
 
 - **command**(_@command_)
