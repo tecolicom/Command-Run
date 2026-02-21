@@ -200,6 +200,18 @@ sub execute {
     };
 }
 
+sub _tmpfile {
+    my ($obj, $key) = @_;
+    my $fh = $obj->{$key} //= do {
+	my $f = new_tmpfile IO::File or die "tmpfile: $!\n";
+	binmode $f, ':encoding(utf8)';
+	$f;
+    };
+    $fh->seek(0, 0)  or die "seek: $!\n";
+    $fh->truncate(0) or die "truncate: $!\n";
+    $fh;
+}
+
 sub _execute_nofork {
     my $obj = shift;
     my $command = shift;
@@ -209,14 +221,7 @@ sub _execute_nofork {
 
     my $code = shift @command;
 
-    # Reuse cached tmpfile for stdout (truncate+seek), create on first call
-    my $tmp_stdout = $obj->{NOFORK_STDOUT} //= do {
-	my $fh = new_tmpfile IO::File or die "tmpfile: $!\n";
-	binmode $fh, ':encoding(utf8)';
-	$fh;
-    };
-    $tmp_stdout->seek(0, 0)  or die "seek: $!\n";
-    $tmp_stdout->truncate(0) or die "truncate: $!\n";
+    my $tmp_stdout = $obj->_tmpfile('NOFORK_STDOUT');
 
     # Save and redirect STDOUT (always needed)
     open my $save_stdout, '>&', \*STDOUT or die "dup STDOUT: $!\n";
@@ -228,13 +233,7 @@ sub _execute_nofork {
 	open $save_stderr, '>&', \*STDERR or die "dup STDERR: $!\n";
 	open STDERR, '>&', \*STDOUT or die "redirect STDERR: $!\n";
     } elsif ($stderr_mode eq 'capture') {
-	$tmp_stderr = $obj->{NOFORK_STDERR} //= do {
-	    my $fh = new_tmpfile IO::File or die "tmpfile: $!\n";
-	    binmode $fh, ':encoding(utf8)';
-	    $fh;
-	};
-	$tmp_stderr->seek(0, 0)  or die "seek: $!\n";
-	$tmp_stderr->truncate(0) or die "truncate: $!\n";
+	$tmp_stderr = $obj->_tmpfile('NOFORK_STDERR');
 	open $save_stderr, '>&', \*STDERR or die "dup STDERR: $!\n";
 	open STDERR, '>&', $tmp_stderr or die "redirect STDERR: $!\n";
     }
@@ -242,13 +241,7 @@ sub _execute_nofork {
     # Handle STDIN — only save/redirect when needed
     my $save_stdin;
     if (exists $opt{stdin}) {
-	my $tmp_stdin = $obj->{NOFORK_STDIN} //= do {
-	    my $fh = new_tmpfile IO::File or die "tmpfile: $!\n";
-	    binmode $fh, ':encoding(utf8)';
-	    $fh;
-	};
-	$tmp_stdin->seek(0, 0)  or die "seek: $!\n";
-	$tmp_stdin->truncate(0) or die "truncate: $!\n";
+	my $tmp_stdin = $obj->_tmpfile('NOFORK_STDIN');
 	$tmp_stdin->print($opt{stdin});
 	$tmp_stdin->seek(0, 0) or die "seek: $!\n";
 	open $save_stdin, '<&', \*STDIN or die "dup STDIN: $!\n";
@@ -336,14 +329,8 @@ sub date {
 sub _set_stdin {
     my $obj = shift;
     my $data = shift;
-    my $input = $obj->{INPUT} //= do {
-	my $fh = new_tmpfile IO::File or die "new_tmpfile: $!\n";
-	$fh->fcntl(F_SETFD, 0) or die "fcntl F_SETFD: $!\n";
-	binmode $fh, ':encoding(utf8)';
-	$fh;
-    };
-    $input->seek(0, 0)  or die "seek: $!\n";
-    $input->truncate(0) or die "truncate: $!\n";
+    my $input = $obj->_tmpfile('INPUT');
+    $input->fcntl(F_SETFD, 0) or die "fcntl F_SETFD: $!\n";
     $input->print($data);
     $input->seek(0, 0)  or die "seek: $!\n";
     $obj;

@@ -134,6 +134,35 @@ $result = Command::Run->new
     ->run;
 is $result->{data}, "chained", 'nofork: via with()';
 
+# repeated execution (tmpfile reuse)
+$cmd = Command::Run->new(
+    command => [sub { print scalar <STDIN> }],
+    nofork  => 1,
+);
+$result = $cmd->run(stdin => "first");
+is $result->{data}, "first", 'nofork: repeated execution 1st';
+$result = $cmd->run(stdin => "second");
+is $result->{data}, "second", 'nofork: repeated execution 2nd';
+$result = $cmd->run(stdin => "third");
+is $result->{data}, "third", 'nofork: repeated execution 3rd';
+
+# STDOUT/STDERR restored after nofork
+$cmd = Command::Run->new(
+    command => [sub { print "captured" }],
+    nofork  => 1,
+);
+$cmd->run;
+ok fileno(STDOUT), 'nofork: STDOUT restored';
+ok fileno(STDERR), 'nofork: STDERR restored';
+
+# empty output
+$result = Command::Run->new(
+    command => [sub { }],
+    nofork  => 1,
+)->run;
+is $result->{data}, '', 'nofork: empty output';
+is $result->{result}, 0, 'nofork: empty output exit status';
+
 # nofork ignored for external commands (falls through to fork)
 $result = Command::Run->new(
     command => ['echo', 'external'],
