@@ -714,13 +714,6 @@ This means existing modules like L<App::ansicolumn> and
 L<App::ansifold> work unchanged with nofork+raw mode, achieving
 significant speedups with zero code changes on the callee side.
 
-B<Note:> If a module's encoding setup runs lazily (e.g., inside the
-called function rather than at module load time), the encoding layer
-would be applied to the redirected STDOUT, conflicting with raw mode.
-In such cases, the L<Getopt::EX::raw> module can be used to
-intercept and replace C<:encoding(utf8)> with C<:raw:utf8> at the
-callee side.
-
 =head2 Caller Protection
 
 Nofork mode executes the code reference in the same process, so care

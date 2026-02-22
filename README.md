@@ -330,13 +330,6 @@ This means existing modules like [App::ansicolumn](https://metacpan.org/pod/App%
 [App::ansifold](https://metacpan.org/pod/App%3A%3Aansifold) work unchanged with nofork+raw mode, achieving
 significant speedups with zero code changes on the callee side.
 
-**Note:** If a module's encoding setup runs lazily (e.g., inside the
-called function rather than at module load time), the encoding layer
-would be applied to the redirected STDOUT, conflicting with raw mode.
-In such cases, the [Getopt::EX::raw](https://metacpan.org/pod/Getopt%3A%3AEX%3A%3Araw) module can be used to
-intercept and replace `:encoding(utf8)` with `:raw:utf8` at the
-callee side.
-
 ## Caller Protection
 
 Nofork mode executes the code reference in the same process, so care
