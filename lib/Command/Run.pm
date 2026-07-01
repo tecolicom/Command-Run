@@ -128,7 +128,7 @@ sub execute {
 
     # Use nofork path for code references when requested
     if ($opt{nofork} and ref $command[0] eq 'CODE') {
-	return $obj->_execute_nofork(\@command, %opt);
+	return $obj->_execute_in_place(\@command, %opt);
     }
 
     my $stderr = $opt{stderr} // '';
@@ -213,7 +213,7 @@ sub _tmpfile {
     $fh;
 }
 
-sub _execute_nofork {
+sub _execute_in_place {
     my $obj = shift;
     my $command = shift;
     my %opt = @_;
@@ -628,7 +628,7 @@ fork-based execution for lightweight functions with small I/O.
 
 =head2 How Nofork Works
 
-In nofork mode, C<_execute_nofork> temporarily redirects the real
+In nofork mode, the module temporarily redirects the real
 STDOUT, STDERR, and STDIN file descriptors to temporary files using
 C<dup>, executes the code reference, then restores them:
 
@@ -679,8 +679,8 @@ than fork after many iterations, due to this leak.  Raw mode avoids
 the issue entirely.
 
     # Benchmark: code ref with stdin (100-byte input, 1000 iterations)
-    fork:                  399/s (baseline)
-    nofork + :encoding:    316/s (0.8x — slower than fork!)
+    fork:                    399/s (baseline)
+    nofork + :encoding:      316/s (0.8x — slower than fork!)
     nofork + :utf8 (raw): 13,433/s (34x faster)
 
 =head2 Zero-Modification Callee Integration
@@ -706,7 +706,7 @@ nofork mode with method chaining:
 
 At step (1), C<require> loads the module and C<use open ':std'>
 applies C<:encoding(utf8)> to the B<original> STDOUT.  At step (2),
-C<_execute_nofork> redirects STDOUT to a fresh temporary file with
+nofork mode redirects STDOUT to a fresh temporary file with
 C<:utf8> layer.  The callee's encoding setup has already fired on the
 original STDOUT and does not affect the redirected one.
 
@@ -792,7 +792,7 @@ B<Command::Run> differs from these modules in several ways:
 
 =item * B<File descriptor path> - Output accessible via C</dev/fd/N>
 
-=item * B<Minimal footprint> - About 200 lines of code
+=item * B<Minimal footprint> - Compact, dependency-light implementation
 
 =item * B<Method chaining> - Fluent interface for readability
 

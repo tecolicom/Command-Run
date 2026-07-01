@@ -244,7 +244,7 @@ fork-based execution for lightweight functions with small I/O.
 
 ## How Nofork Works
 
-In nofork mode, `_execute_nofork` temporarily redirects the real
+In nofork mode, the module temporarily redirects the real
 STDOUT, STDERR, and STDIN file descriptors to temporary files using
 `dup`, executes the code reference, then restores them:
 
@@ -295,8 +295,8 @@ than fork after many iterations, due to this leak.  Raw mode avoids
 the issue entirely.
 
     # Benchmark: code ref with stdin (100-byte input, 1000 iterations)
-    fork:                  399/s (baseline)
-    nofork + :encoding:    316/s (0.8x — slower than fork!)
+    fork:                    399/s (baseline)
+    nofork + :encoding:      316/s (0.8x — slower than fork!)
     nofork + :utf8 (raw): 13,433/s (34x faster)
 
 ## Zero-Modification Callee Integration
@@ -322,7 +322,7 @@ nofork mode with method chaining:
 
 At step (1), `require` loads the module and `use open ':std'`
 applies `:encoding(utf8)` to the **original** STDOUT.  At step (2),
-`_execute_nofork` redirects STDOUT to a fresh temporary file with
+nofork mode redirects STDOUT to a fresh temporary file with
 `:utf8` layer.  The callee's encoding setup has already fired on the
 original STDOUT and does not affect the redirected one.
 
@@ -395,7 +395,7 @@ which motivated its release as an independent distribution.
 - **Core modules only** - No non-core dependencies
 - **Code reference support** - Execute Perl code with $0 and @ARGV setup
 - **File descriptor path** - Output accessible via `/dev/fd/N`
-- **Minimal footprint** - About 200 lines of code
+- **Minimal footprint** - Compact, dependency-light implementation
 - **Method chaining** - Fluent interface for readability
 
 # SEE ALSO
