@@ -117,8 +117,7 @@ With `run`, parameters are temporary and do not modify the object.
 
     When true (with `nofork`), use `:utf8` instead of
     `:encoding(utf8)` on I/O temporary files, avoiding encode/decode
-    overhead and PerlIO layer leak.  See ["NOFORK AND RAW MODE"](#nofork-and-raw-mode) for
-    details.
+    overhead.  See ["NOFORK AND RAW MODE"](#nofork-and-raw-mode) for details.
 
         my $result = Command::Run->new(
             command => [\&process, @args],
@@ -280,24 +279,29 @@ be passed directly.  The `:utf8` layer simply sets Perl's UTF-8 flag
 on strings read from the file without performing actual byte-level
 conversion.
 
-### PerlIO Encoding Leak
+### PerlIO Encoding Layer Accumulation
 
-There is an additional reason to prefer `:utf8` over
-`:encoding(utf8)` in long-running processes.  Repeatedly pushing and
-popping the `:encoding(utf8)` layer (which happens on each nofork
-execution when opening and closing temporary files) causes a
-cumulative performance degradation in Perl's PerlIO subsystem.  This
-affects **all** PerlIO operations in the process, not just the ones
-using the encoding layer.
+Nofork mode temporarily redirects the standard filehandles and
+restores them with `open FH, '>&', ...`.  Perl keeps the
+existing PerlIO layer stack when a filehandle is re-opened this way,
+and `binmode FH, ':encoding(utf8)'` pushes a new layer even when one
+is already present.  In earlier versions of this module, the encoding
+layer pushed on each execution therefore accumulated on STDIN/STDOUT
+one layer per execution, making long-running processes progressively
+slower (nofork could end up slower than fork) and growing memory
+without bound.  See
+[https://github.com/kaz-utashiro/perl-perlio-leak-bench](https://github.com/kaz-utashiro/perl-perlio-leak-bench) for the
+underlying Perl behavior.
 
-In benchmarks, nofork with `:encoding(utf8)` is actually **slower**
-than fork after many iterations, due to this leak.  Raw mode avoids
-the issue entirely.
+This is fixed: the layer change is now undone before the handles are
+restored, so the layer stack of the standard filehandles stays
+exactly as the caller left it.  With the fix, nofork is much faster
+than fork in either mode:
 
-    # Benchmark: code ref with stdin (100-byte input, 1000 iterations)
-    fork:                    399/s (baseline)
-    nofork + :encoding:      316/s (0.8x — slower than fork!)
-    nofork + :utf8 (raw): 13,433/s (34x faster)
+    # Benchmark: code ref with stdin (100-byte input)
+    fork:                  448/s (baseline)
+    nofork + :encoding:  2,448/s (5.5x)
+    nofork + :utf8 (raw):2,549/s (5.7x)
 
 ## Zero-Modification Callee Integration
 
