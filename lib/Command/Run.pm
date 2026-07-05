@@ -722,12 +722,15 @@ underlying Perl behavior.
 This is fixed: the layer change is now undone before the handles are
 restored, so the layer stack of the standard filehandles stays
 exactly as the caller left it.  With the fix, nofork is much faster
-than fork in either mode:
+than fork in either mode, and most of the historical gap between
+C<:encoding> and raw mode (which was caused by the accumulation) is
+gone:
 
-    # Benchmark: code ref with stdin (100-byte input)
-    fork:                  448/s (baseline)
-    nofork + :encoding:  2,448/s (5.5x)
-    nofork + :utf8 (raw):2,549/s (5.7x)
+    # Benchmark: code ref with stdin (100-byte input,
+    # 1000 iterations, object reused)
+    fork:                    495/s (baseline)
+    nofork + :encoding:   15,997/s (32x)
+    nofork + :utf8 (raw): 20,038/s (40x)
 
 =head2 Zero-Modification Callee Integration
 
