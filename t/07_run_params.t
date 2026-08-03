@@ -25,9 +25,9 @@ use Command::Run;
 {
     my $runner = Command::Run->new(command => ['echo', 'stored']);
     is $runner->run(command => ['echo', 'temporary'])->{data}, "temporary\n",
-	'temporary command overrides stored one';
+        'temporary command overrides stored one';
     is $runner->run->{data}, "stored\n",
-	'stored command is left unchanged';
+        'stored command is left unchanged';
 }
 
 # stdout reference
@@ -50,7 +50,7 @@ use Command::Run;
 {
     my $err;
     my $result = Command::Run->new(command => ['sh', '-c', 'echo err >&2'])
-	->run(stderr => \$err);
+        ->run(stderr => \$err);
     is $err, "err\n", 'run with stderr reference';
     is $result->{error}, "err\n", 'stderr reference implies capture';
 }
@@ -58,9 +58,9 @@ use Command::Run;
 # combination -- "All-in-one style"
 {
     my $result = Command::Run->new->run(
-	command => ['cat', '-n'],
-	stdin   => "foo\n",
-	stderr  => 'redirect',
+        command => ['cat', '-n'],
+        stdin   => "foo\n",
+        stderr  => 'redirect',
     );
     like $result->{data}, qr/1.*foo/, 'run with command, stdin and stderr';
 }
