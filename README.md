@@ -46,7 +46,7 @@ Command::Run - Execute external command or code reference
 
 # VERSION
 
-Version 1.02
+Version 1.03
 
 # DESCRIPTION
 
