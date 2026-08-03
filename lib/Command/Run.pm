@@ -479,9 +479,14 @@ key-value pairs (see L</PARAMETERS>):
 
 =head1 PARAMETERS
 
-The following parameters can be used with C<new>, C<with>, and C<run>.
-With C<new> and C<with>, parameters are stored in the object.
-With C<run>, parameters are temporary and do not modify the object.
+The following parameters can be used with C<new> and C<with>, which
+store them in the object.
+
+C<run> also takes C<stdin>, C<stderr> in string form, C<nofork> and
+C<raw> as temporary parameters, effective only for that execution and
+leaving the object unchanged.  The others (C<command>, C<stdout> and
+C<stderr> in scalar reference form) are kept in the object, so they
+have to be given to C<new> or C<with>.
 
 =over 4
 
@@ -559,27 +564,28 @@ object and persist across multiple C<run> calls.  Returns the object
 for method chaining.
 
     my ($out, $err);
-    Command::Run->new("command")
+    Command::Run->new(command => [ 'command', @args ])
         ->with(stdin => $data, stdout => \$out, stderr => \$err)
         ->run;
 
 =item B<run>(I<%parameters>)
 
 Execute the command and return the result hash reference.
-Accepts the same parameters as C<with>, but parameters are
-temporary and do not modify the object state.
+Accepts temporary parameters which do not modify the object state
+(see L</PARAMETERS>).
 
     # All-in-one style
-    my $result = Command::Run->new->run(
-        command => ['cat', '-n'],
-        stdin   => $data,
-        stderr  => 'redirect',
+    my $result = Command::Run->new(command => ['cat', '-n'])->run(
+        stdin  => $data,
+        stderr => 'redirect',
     );
 
     # Reuse runner with different input
-    my $runner = Command::Run->new('cat');
+    my $runner = Command::Run->new(command => ['cat']);
     $runner->run(stdin => $input1);
     $runner->run(stdin => $input2);  # object state unchanged
+
+Note that C<new> takes key-value pairs, not a command list.
 
 =item B<update>()
 

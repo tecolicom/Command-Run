@@ -81,9 +81,14 @@ which can be used as a file argument to external commands.
 
 # PARAMETERS
 
-The following parameters can be used with `new`, `with`, and `run`.
-With `new` and `with`, parameters are stored in the object.
-With `run`, parameters are temporary and do not modify the object.
+The following parameters can be used with `new` and `with`, which
+store them in the object.
+
+`run` also takes `stdin`, `stderr` in string form, `nofork` and
+`raw` as temporary parameters, effective only for that execution and
+leaving the object unchanged.  The others (`command`, `stdout` and
+`stderr` in scalar reference form) are kept in the object, so they
+have to be given to `new` or `with`.
 
 - **command** => _\\@command_
 
@@ -143,27 +148,28 @@ With `run`, parameters are temporary and do not modify the object.
     for method chaining.
 
         my ($out, $err);
-        Command::Run->new("command")
+        Command::Run->new(command => [ 'command', @args ])
             ->with(stdin => $data, stdout => \$out, stderr => \$err)
             ->run;
 
 - **run**(_%parameters_)
 
     Execute the command and return the result hash reference.
-    Accepts the same parameters as `with`, but parameters are
-    temporary and do not modify the object state.
+    Accepts temporary parameters which do not modify the object state
+    (see ["PARAMETERS"](#parameters)).
 
         # All-in-one style
-        my $result = Command::Run->new->run(
-            command => ['cat', '-n'],
-            stdin   => $data,
-            stderr  => 'redirect',
+        my $result = Command::Run->new(command => ['cat', '-n'])->run(
+            stdin  => $data,
+            stderr => 'redirect',
         );
 
         # Reuse runner with different input
-        my $runner = Command::Run->new('cat');
+        my $runner = Command::Run->new(command => ['cat']);
         $runner->run(stdin => $input1);
         $runner->run(stdin => $input2);  # object state unchanged
+
+    Note that `new` takes key-value pairs, not a command list.
 
 - **update**()
 
