@@ -87,11 +87,15 @@ sub option {
 
 sub run {
     my $obj = shift;
-    $obj->update(@_);
-    if (my $ref = $obj->{STDOUT_REF}) {
+    my %args = @_;
+    my $stdout_ref = delete $args{stdout};
+    my $stderr_ref = ref $args{stderr} eq 'SCALAR' ? delete $args{stderr} : undef;
+    $args{stderr} = 'capture' if $stderr_ref;
+    $obj->update(%args);
+    if (my $ref = $stdout_ref // $obj->{STDOUT_REF}) {
 	$$ref = $obj->data;
     }
-    if (my $ref = $obj->{STDERR_REF}) {
+    if (my $ref = $stderr_ref // $obj->{STDERR_REF}) {
 	$$ref = $obj->error;
     }
     return $obj->result;
@@ -100,9 +104,12 @@ sub run {
 sub update {
     use Time::localtime;
     my $obj = shift;
-    my @command = $obj->command;
+    my %args = @_;
+    my $command = delete $args{command};
+    my @command = defined $command ?
+	(ref $command eq 'ARRAY' ? @$command : $command) : $obj->command;
     if (@command) {
-	$obj->{RESULT} = $obj->execute(\@command, @_);
+	$obj->{RESULT} = $obj->execute(\@command, %args);
 	# Store stdout in temp file for path access
 	my $fh = $obj->fh;
 	$fh->seek(0, 0)  or die "seek: $!\n";
@@ -479,14 +486,9 @@ key-value pairs (see L</PARAMETERS>):
 
 =head1 PARAMETERS
 
-The following parameters can be used with C<new> and C<with>, which
-store them in the object.
-
-C<run> also takes C<stdin>, C<stderr> in string form, C<nofork> and
-C<raw> as temporary parameters, effective only for that execution and
-leaving the object unchanged.  The others (C<command>, C<stdout> and
-C<stderr> in scalar reference form) are kept in the object, so they
-have to be given to C<new> or C<with>.
+The following parameters can be used with C<new>, C<with>, and C<run>.
+With C<new> and C<with>, parameters are stored in the object.
+With C<run>, parameters are temporary and do not modify the object.
 
 =over 4
 
@@ -571,13 +573,14 @@ for method chaining.
 =item B<run>(I<%parameters>)
 
 Execute the command and return the result hash reference.
-Accepts temporary parameters which do not modify the object state
-(see L</PARAMETERS>).
+Accepts the same parameters as C<with>, but parameters are
+temporary and do not modify the object state.
 
     # All-in-one style
-    my $result = Command::Run->new(command => ['cat', '-n'])->run(
-        stdin  => $data,
-        stderr => 'redirect',
+    my $result = Command::Run->new->run(
+        command => ['cat', '-n'],
+        stdin   => $data,
+        stderr  => 'redirect',
     );
 
     # Reuse runner with different input
@@ -587,9 +590,11 @@ Accepts temporary parameters which do not modify the object state
 
 Note that C<new> takes key-value pairs, not a command list.
 
-=item B<update>()
+=item B<update>(I<%parameters>)
 
-Execute the command and store the output.
+Execute the command and store the output.  Accepts the same
+parameters as C<run>, except C<stdout> and C<stderr> scalar
+references, which are filled by C<run>.
 Returns the object for method chaining.
 
 =item B<result>()
