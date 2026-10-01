@@ -286,10 +286,12 @@ conversion.
 ### PerlIO Encoding Layer Accumulation
 
 Nofork mode temporarily redirects the standard filehandles and
-restores them with `open FH, '>&', ...`.  Perl keeps the
-existing PerlIO layer stack when a filehandle is re-opened this way,
-and `binmode FH, ':encoding(utf8)'` pushes a new layer even when one
-is already present.  In earlier versions of this module, the encoding
+restores them with `open FH, '>&', ...`.  A handle on file
+descriptor 0, 1 or 2 keeps its existing PerlIO layer stack across such
+a re-open - ordinary handles adopt the layer stack of the dup source
+instead - and `binmode FH, ':encoding(utf8)'` pushes a new layer even
+when one is already present.  In earlier versions of this module, the
+encoding
 layer pushed on each execution therefore accumulated on STDIN/STDOUT
 one layer per execution, making long-running processes progressively
 slower (nofork could end up slower than fork) and growing memory

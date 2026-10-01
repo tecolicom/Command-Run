@@ -224,9 +224,11 @@ sub _tmpfile {
 ## Undo the layer change made for the execution, bringing the handle
 ## back to the layer list captured before the redirect.
 ##
-## Re-opening a filehandle over a dup (open FH, '>&', ...) keeps the
-## existing layer stack, so without this the layer pushed for each
-## execution would accumulate indefinitely.
+## A handle on fd 0, 1 or 2 keeps its existing layer stack when
+## re-opened over a dup (open FH, '>&', ...); ordinary handles adopt
+## the dup source's stack instead, which is why only the standard
+## handles need this.  Without it the layer pushed for each execution
+## would accumulate indefinitely.
 ## See https://github.com/kaz-utashiro/perl-perlio-leak-bench
 ##
 ## We compare against the saved list rather than assuming the push
@@ -719,10 +721,12 @@ conversion.
 =head3 PerlIO Encoding Layer Accumulation
 
 Nofork mode temporarily redirects the standard filehandles and
-restores them with C<open FH, 'E<gt>&', ...>.  Perl keeps the
-existing PerlIO layer stack when a filehandle is re-opened this way,
-and C<binmode FH, ':encoding(utf8)'> pushes a new layer even when one
-is already present.  In earlier versions of this module, the encoding
+restores them with C<open FH, 'E<gt>&', ...>.  A handle on file
+descriptor 0, 1 or 2 keeps its existing PerlIO layer stack across such
+a re-open -- ordinary handles adopt the layer stack of the dup source
+instead -- and C<binmode FH, ':encoding(utf8)'> pushes a new layer even
+when one is already present.  In earlier versions of this module, the
+encoding
 layer pushed on each execution therefore accumulated on STDIN/STDOUT
 one layer per execution, making long-running processes progressively
 slower (nofork could end up slower than fork) and growing memory
