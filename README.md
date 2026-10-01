@@ -290,10 +290,10 @@ restores them with `open FH, '>&', ...`.  Perl keeps the
 existing PerlIO layer stack when a filehandle is re-opened this way,
 and `binmode FH, ':encoding(utf8)'` pushes a new layer even when one
 is already present.  In earlier versions of this module, the encoding
-layer pushed on each execution therefore accumulated on STDIN/STDOUT,
-one layer pair (`encoding(utf8)` and `utf8`) per execution, making
-long-running processes progressively slower (nofork could end up
-slower than fork) and growing memory without bound.  See
+layer pushed on each execution therefore accumulated on STDIN/STDOUT
+one layer per execution, making long-running processes progressively
+slower (nofork could end up slower than fork) and growing memory
+without bound.  See
 [https://github.com/kaz-utashiro/perl-perlio-leak-bench](https://github.com/kaz-utashiro/perl-perlio-leak-bench) for the
 underlying Perl behavior.
 
