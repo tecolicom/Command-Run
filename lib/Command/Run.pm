@@ -221,35 +221,35 @@ sub _tmpfile {
 }
 
 ##
-## Remove an encoding layer pushed on the handle.  Re-opening a
-## filehandle over a dup (open FH, '>&', ...) keeps the existing
-## layer stack, so without this the layer pushed for each execution
-## would accumulate indefinitely.
+## Undo the layer change made for the execution, bringing the handle
+## back to the layer list captured before the redirect.
+##
+## Re-opening a filehandle over a dup (open FH, '>&', ...) keeps the
+## existing layer stack, so without this the layer pushed for each
+## execution would accumulate indefinitely.
 ## See https://github.com/kaz-utashiro/perl-perlio-leak-bench
 ##
-sub _pop_encoding {
-    my $fh = shift;
-    my @layers = PerlIO::get_layers($fh);
-    if (grep { defined && /^encoding\b/ } @layers[-2 .. -1]) {
-        binmode $fh, ':pop';
-    }
-}
-
-sub _utf8_flagged {
-    my $fh = shift;
-    !! grep { $_ eq 'utf8' } PerlIO::get_layers($fh);
-}
-
+## We compare against the saved list rather than assuming the push
+## added exactly one layer.  binmode ':encoding' is currently not
+## idempotent (perl/perl5#10454), so pushing it always stacks; should
+## that ever change, an unconditional ':pop' would take away a layer
+## the caller set.  Popping only down to the saved depth is correct
+## either way.
 ##
-## Undo the layer change made for the execution: pop the :encoding
-## layer (non-raw), or clear the :utf8 flag if we set it (raw).
-##
-sub _restore_encoding {
-    my($fh, $raw, $was_utf8) = @_;
+sub _restore_layers {
+    my($fh, $raw, $before) = @_;
+    ## ':utf8' only sets a flag on the handle, there is no layer to pop
     if ($raw) {
-        binmode $fh, ':bytes' unless $was_utf8;
-    } else {
-        _pop_encoding($fh);
+        binmode $fh, ':bytes' unless grep { $_ eq 'utf8' } @$before;
+        return;
+    }
+    my $want = scalar @$before;
+    my $have = () = PerlIO::get_layers($fh);
+    while ($have > $want) {
+        binmode $fh, ':pop';
+        my $now = () = PerlIO::get_layers($fh);
+        last if $now >= $have;  # ':pop' made no progress; stop rather than spin
+        $have = $now;
     }
 }
 
@@ -267,7 +267,7 @@ sub _execute_in_place {
 
     # Save and redirect STDOUT (always needed)
     open my $save_stdout, '>&', \*STDOUT or die "dup STDOUT: $!\n";
-    my $stdout_was_utf8 = _utf8_flagged(\*STDOUT);
+    my @stdout_layers = PerlIO::get_layers(\*STDOUT);
     open STDOUT, '>&', $tmp_stdout or die "redirect STDOUT: $!\n";
     binmode STDOUT, $raw ? ':utf8' : ':encoding(utf8)';
 
@@ -284,19 +284,19 @@ sub _execute_in_place {
 
     # Handle STDIN — only save/redirect when needed
     my $save_stdin;
-    my $stdin_was_utf8;
+    my @stdin_layers;
     if (exists $opt{stdin}) {
         my $tmp_stdin = $obj->_tmpfile('NOFORK_STDIN', raw => $raw);
         $tmp_stdin->print($opt{stdin});
         $tmp_stdin->seek(0, 0) or die "seek: $!\n";
         open $save_stdin, '<&', \*STDIN or die "dup STDIN: $!\n";
-        $stdin_was_utf8 = _utf8_flagged(\*STDIN);
+        @stdin_layers = PerlIO::get_layers(\*STDIN);
         open STDIN, '<&', $tmp_stdin or die "redirect STDIN: $!\n";
         binmode STDIN, $raw ? ':utf8' : ':encoding(utf8)';
     } elsif (my $input = $obj->{INPUT}) {
         $input->seek(0, 0) or die "seek: $!\n";
         open $save_stdin, '<&', \*STDIN or die "dup STDIN: $!\n";
-        $stdin_was_utf8 = _utf8_flagged(\*STDIN);
+        @stdin_layers = PerlIO::get_layers(\*STDIN);
         open STDIN, '<&', $input->fileno or die "redirect STDIN: $!\n";
         binmode STDIN, $raw ? ':utf8' : ':encoding(utf8)';
     }
@@ -322,14 +322,14 @@ sub _execute_in_place {
     # so it would persist (and :encoding would accumulate on every
     # execution) otherwise.
     STDOUT->flush;
-    _restore_encoding(\*STDOUT, $raw, $stdout_was_utf8);
+    _restore_layers(\*STDOUT, $raw, \@stdout_layers);
     open STDOUT, '>&', $save_stdout or die "restore STDOUT: $!\n";
     if ($save_stderr) {
         STDERR->flush;
         open STDERR, '>&', $save_stderr or die "restore STDERR: $!\n";
     }
     if ($save_stdin) {
-        _restore_encoding(\*STDIN, $raw, $stdin_was_utf8);
+        _restore_layers(\*STDIN, $raw, \@stdin_layers);
         open STDIN, '<&', $save_stdin or die "restore STDIN: $!\n";
     }
     if (defined $orig_0) {
