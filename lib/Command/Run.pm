@@ -6,6 +6,7 @@ use v5.14;
 use warnings;
 use utf8;
 use Carp;
+use POSIX ();
 use Fcntl;
 use IO::File;
 
@@ -319,16 +320,27 @@ sub _execute_in_place {
         $result = -1;
     }
 
-    # Flush and restore — only what was redirected.  Undo the layer
-    # change made above; restoring by re-open keeps the layer stack,
-    # so it would persist (and :encoding would accumulate on every
-    # execution) otherwise.
+    # Flush and restore — only what was redirected.
+    #
+    # Pop the layer pushed for raw mode first; the redirect reused the
+    # handle's PerlIO object, so it would accumulate on every call.
+    #
+    # Restore the destination with dup2(), not `open STDOUT, ">&"`:
+    # re-opening onto a character device (terminal, /dev/null) gives
+    # the handle a new output side with no layers, and the caller's
+    # later output would lose its :encoding.  dup2() leaves the PerlIO
+    # object and its layers alone.
+    # See https://github.com/kaz-utashiro/perl-perlio-leak-bench
     STDOUT->flush;
     _restore_layers(\*STDOUT, $raw, \@stdout_layers);
-    open STDOUT, '>&', $save_stdout or die "restore STDOUT: $!\n";
+    defined POSIX::dup2(fileno($save_stdout), fileno(STDOUT))
+        or die "restore STDOUT: $!\n";
+    close $save_stdout;
     if ($save_stderr) {
         STDERR->flush;
-        open STDERR, '>&', $save_stderr or die "restore STDERR: $!\n";
+        defined POSIX::dup2(fileno($save_stderr), fileno(STDERR))
+            or die "restore STDERR: $!\n";
+        close $save_stderr;
     }
     if ($save_stdin) {
         _restore_layers(\*STDIN, $raw, \@stdin_layers);
@@ -690,7 +702,7 @@ C<dup>, executes the code reference, then restores them:
     open $save, '>&', \*STDOUT;           # save original
     open STDOUT, '>&', $tmpfile;          # redirect to tmpfile
     $code->(@args);                       # execute code ref
-    open STDOUT, '>&', $save;             # restore original
+    dup2(fileno($save), fileno(STDOUT));  # restore original
     $tmpfile->seek(0, 0);
     $output = do { local $/; <$tmpfile> }; # read captured output
 
@@ -747,6 +759,24 @@ gone:
     fork:                    495/s (baseline)
     nofork + :encoding:   15,997/s (32x)
     nofork + :utf8 (raw): 20,038/s (40x)
+
+=head3 Output Side of Character Devices
+
+Re-opening a handle over a dup has a second effect besides the
+accumulation above.  When the handle writes to a B<character device>
+(a terminal, C</dev/null>), perl gives it a new output-side PerlIO with
+no layers; only the input side receives the dup source's layer stack.
+After C<open STDOUT, 'E<gt>&', $save> on a terminal, the caller's
+later output therefore bypasses its C<:encoding(utf8)>: non-ASCII text
+produces C<Wide character> warnings, other encodings produce wrong
+bytes.  C<PerlIO::get_layers(STDOUT)> still shows the layer, because it
+reports the input side by default (pass C<output =E<gt> 1> to see the
+output side).  Pipes and regular files are not affected.
+
+Since 1.04, STDOUT and STDERR are restored with C<dup2()> on the file
+descriptor instead of being re-opened, which leaves the PerlIO object
+and its layers in place.  STDIN has no output side and is still
+restored with C<open>.
 
 =head2 Zero-Modification Callee Integration
 
