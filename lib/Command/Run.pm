@@ -808,6 +808,37 @@ original STDOUT and does not affect the redirected one.
 This means existing modules like L<App::ansicolumn> and
 L<App::ansifold> work unchanged with nofork+raw mode, achieving
 significant speedups with zero code changes on the callee side.
+For the exceptions, see L</Writing a Callee for Nofork>.
+
+=head2 Writing a Callee for Nofork
+
+In nofork mode, the callee runs in the process of the caller.
+Command::Run protects only C<$_>, C<@ARGV>, C<$0> and the standard
+file handles.  Everything else is shared: global variables, loaded
+modules, and the settings of other modules.
+
+A callee should follow these rules.
+
+=over 4
+
+=item Set things up in the function, not at load time.
+
+The module may be loaded by another program, while C<$0> is still the
+name of that program.  For example, C<ExConfigure> of
+L<Getopt::EX::Long> at load time goes to the caller.
+
+=item Do not expect process-wide settings to be fresh.
+
+They may be left by the caller or by an earlier callee.  For example,
+C<Getopt::Long::Configure> only changes the settings you name, so set
+all you need on each call.
+
+=item Do not call C<exit>.
+
+It ends the caller too.  Use C<die> or return; C<die> is caught and
+the result is -1.
+
+=back
 
 =head2 Caller Protection
 
