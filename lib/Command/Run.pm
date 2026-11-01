@@ -172,6 +172,8 @@ sub execute {
         # else: stderr passes through to terminal
 
         if (ref $command[0] eq 'CODE') {
+            # print goes to the selected handle: make that the new STDOUT
+            select(STDOUT);
             my $code = shift @command;
             @ARGV = @command;
             if (my $name = code_name($code)) {
@@ -313,6 +315,9 @@ sub _execute_in_place {
         $0 = $name;
     }
 
+    # Print of the code goes to the handle select()ed by the caller:
+    # make that STDOUT while it runs
+    my $prev_select = select(STDOUT);
     # Execute
     my $result = 0;
     eval { $code->(@command) };
@@ -336,6 +341,7 @@ sub _execute_in_place {
     defined POSIX::dup2(fileno($save_stdout), fileno(STDOUT))
         or die "restore STDOUT: $!\n";
     close $save_stdout;
+    select($prev_select);
     if ($save_stderr) {
         STDERR->flush;
         defined POSIX::dup2(fileno($save_stderr), fileno(STDERR))
